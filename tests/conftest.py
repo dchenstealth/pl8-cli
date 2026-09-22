@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import io
 import json
 
 import pytest
@@ -22,6 +23,19 @@ def aws_environment(monkeypatch):
     monkeypatch.setenv("AWS_DEFAULT_REGION", REGION)
     for name in ("AWS_PROFILE", "PL8_ENV", "PL8_FUNCTION_NAME", "PL8_SPACE"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def stdin(monkeypatch):
+    """Replace stdin with UTF-8 bytes behind a text wrapper, like the real one.
+
+    locale_encoding is what the wrapper would decode with, standing in for
+    the user's locale.
+    """
+    def stdin(text, *, locale_encoding="utf-8"):
+        raw = io.BytesIO(text.encode("utf-8"))
+        monkeypatch.setattr("sys.stdin", io.TextIOWrapper(raw, encoding=locale_encoding))
+    return stdin
 
 
 class FakeInvoker:

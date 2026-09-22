@@ -4,7 +4,6 @@
 
 """Envelope output, exit codes, configuration, and the raw invoke command."""
 
-import io
 import json
 
 import pytest
@@ -30,6 +29,8 @@ def usage_error(result):
     ("DDBCorruptedError", cli.EXIT_FAULT),
     ("InvokeError", cli.EXIT_FAULT),
     ("FunctionError", cli.EXIT_FAULT),
+    ("DDBTransactionConflictError", cli.EXIT_TRANSIENT),
+    ("DDBIdCollisionError", cli.EXIT_TRANSIENT),
 ])
 def test_failure_exit_codes(run, error_type, expected):
     envelope = {"ok": False, "error": {"type": error_type, "message": "m"}}
@@ -75,6 +76,20 @@ def test_function_name_resolution(run, monkeypatch, argv, environ, expected):
     _, _, invoker = run([*argv, "invoke", "get_space"])
 
     assert invoker.config["function_name"] == expected
+
+
+def test_unknown_profile_is_usage_error(capsys, monkeypatch, tmp_path):
+    empty = tmp_path / "empty"
+    empty.touch()
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(empty))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(empty))
+
+    code = cli.main(["--env", "dev", "--profile", "nope", "space", "get", "ENG"])
+
+    assert code == cli.EXIT_USAGE
+    out = json.loads(capsys.readouterr().out)
+    assert out["error"]["type"] == cli.USAGE_ERROR
+    assert "nope" in out["error"]["message"]
 
 
 def test_no_function_configured_is_usage_error(run):
@@ -124,8 +139,8 @@ def test_invoke_params_file(run, tmp_path):
     assert invoker.calls == [("get_space", {"space_id": "ENG"})]
 
 
-def test_invoke_params_from_stdin(run, monkeypatch):
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"space_id": "ENG"}'))
+def test_invoke_params_from_stdin(run, stdin):
+    stdin('{"space_id": "ENG"}')
     _, _, invoker = run(["--env", "dev", "invoke", "get_space", "--params-file", "-"])
     assert invoker.calls == [("get_space", {"space_id": "ENG"})]
 

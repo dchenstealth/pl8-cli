@@ -56,9 +56,10 @@ status says what kind of failure it was:
 | Exit | Meaning | `error.type` |
 | --- | --- | --- |
 | 0 | Success | |
-| 1 | PL8 rejected the request. Fix it; retrying unchanged won't help. | `DDB*` errors, `InvalidParams`, `UnknownOperation`, `InvalidRequest` |
-| 2 | The command line was wrong; nothing was sent. | `UsageError` |
+| 1 | PL8 rejected the request. Fix it; retrying unchanged won't help. | other `DDB*` errors, `InvalidParams`, `UnknownOperation`, `InvalidRequest` |
+| 2 | The command line was wrong, or `--profile` names no profile; nothing was sent. | `UsageError` |
 | 3 | No trustworthy answer: transport failure or server fault. A write may or may not have been applied, so re-read before retrying it. | `InvokeError`, `FunctionError`, `DDBInternalError`, `DDBCorruptedError` |
+| 4 | Transient contention, already retried by PL8. Nothing was applied; retry the same request. | `DDBTransactionConflictError`, `DDBIdCollisionError` |
 
 Writes are never retried automatically, since a write that timed out may
 already have been applied. Reads are retried on transient errors.

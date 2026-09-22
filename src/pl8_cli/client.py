@@ -58,17 +58,13 @@ class Invoker:
     """Calls one pl8-interface function, synchronously, through Lambda Invoke."""
 
     def __init__(self, function_name, *, profile=None, region=None):
+        """Raises ProfileNotFound for an unknown profile, before any call."""
         self.function_name = function_name
-        self._profile = profile
-        self._region = region
-        self._session = None
+        self._session = boto3.Session(profile_name=profile, region_name=region)
         self._clients = {}
 
     def _client(self, *, read):
         if read not in self._clients:
-            if self._session is None:
-                self._session = boto3.Session(profile_name=self._profile,
-                                              region_name=self._region)
             self._clients[read] = self._session.client("lambda", config=Config(
                 read_timeout=READ_TIMEOUT_SECONDS,
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,

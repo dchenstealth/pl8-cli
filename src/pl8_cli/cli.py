@@ -26,6 +26,8 @@ import sys
 from importlib.metadata import version
 from typing import NamedTuple
 
+from botocore.exceptions import ProfileNotFound
+
 from pl8_cli.client import FUNCTION_ERROR, INVOKE_ERROR, Invoker, error
 
 EXIT_OK = 0
@@ -37,6 +39,9 @@ EXIT_USAGE = 2
 # No trustworthy answer: transport failure or a server-side fault. A write
 # that fails this way may or may not have been applied.
 EXIT_FAULT = 3
+# Transient contention that pl8-interface already retried. Nothing was
+# applied, so the same request may be sent again unchanged.
+EXIT_TRANSIENT = 4
 
 USAGE_ERROR = "UsageError"
 # Error types that mean the server, not the request, is at fault.
@@ -46,6 +51,11 @@ FAULT_ERRORS = frozenset({
     FUNCTION_ERROR,
     "DDBInternalError",
     "DDBCorruptedError",
+})
+# Error types that pl8-base documents as safe to retry unchanged.
+TRANSIENT_ERRORS = frozenset({
+    "DDBTransactionConflictError",
+    "DDBIdCollisionError",
 })
 
 FUNCTION_SUFFIX = "-pl8-interface"
@@ -77,7 +87,8 @@ class ArgumentParser(argparse.ArgumentParser):
 def read_text(path):
     """Read a file argument, with "-" meaning stdin."""
     if path == "-":
-        return sys.stdin.read()
+        # Decoded as UTF-8 like a file, whatever the locale's encoding.
+        return sys.stdin.buffer.read().decode("utf-8")
     try:
         with open(path, encoding="utf-8") as f:
             return f.read()
@@ -385,7 +396,8 @@ def build_parser():
         prog="pl8", parents=[common],
         description="Agent-friendly CLI for PL8. Prints one JSON envelope on "
                     "stdout; exit status 0 ok, 1 rejected by PL8, 2 usage "
-                    "error, 3 transport or server fault.")
+                    "error, 3 transport or server fault, 4 transient conflict "
+                    "(retry unchanged).")
     parser.add_argument("--version", action="version",
                         version=f"%(prog)s {version('pl8-cli')}")
     subparsers = parser.add_subparsers(title="commands", metavar="COMMAND",
@@ -422,6 +434,8 @@ def exit_code(envelope):
         return EXIT_OK
     if envelope["error"]["type"] in FAULT_ERRORS:
         return EXIT_FAULT
+    if envelope["error"]["type"] in TRANSIENT_ERRORS:
+        return EXIT_TRANSIENT
     return EXIT_REJECTED
 
 
@@ -437,10 +451,17 @@ def collect_pages(invoker, request):
         envelope = invoker.invoke(request.operation, params)
         if not envelope["ok"]:
             return envelope
+        if not is_page(envelope["data"]):
+            return error(INVOKE_ERROR, "Response is not a page of items")
         items.extend(envelope["data"]["items"])
         if envelope["data"]["cursor"] is None:
             return {"ok": True, "data": {"items": items, "cursor": None}}
         params = {**params, "cursor": envelope["data"]["cursor"]}
+
+
+def is_page(data):
+    return (isinstance(data, dict) and isinstance(data.get("items"), list)
+            and isinstance(data.get("cursor"), (str, type(None))))
 
 
 def emit(envelope, *, pretty=False):
@@ -450,14 +471,13 @@ def emit(envelope, *, pretty=False):
 def main(argv=None, *, make_invoker=Invoker):
     try:
         args, request = parse(argv)
-        function_name = resolve_function_name(args)
-    except UsageError as exc:
+        invoker = make_invoker(resolve_function_name(args),
+                               profile=getattr(args, "profile", None),
+                               region=getattr(args, "region", None))
+    except (UsageError, ProfileNotFound) as exc:
         emit(error(USAGE_ERROR, str(exc)))
         return EXIT_USAGE
 
-    invoker = make_invoker(function_name,
-                           profile=getattr(args, "profile", None),
-                           region=getattr(args, "region", None))
     if request.all_pages:
         envelope = collect_pages(invoker, request)
     else:

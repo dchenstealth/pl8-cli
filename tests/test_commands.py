@@ -4,8 +4,6 @@
 
 """How each subcommand's arguments become an operation and its params."""
 
-import io
-
 import pytest
 
 from pl8_cli import cli
@@ -223,10 +221,16 @@ def test_description_file(call, tmp_path):
                 str(path))[1]["description"] == "Line one\n\n`quoted` $text\n"
 
 
-def test_description_from_stdin(call, monkeypatch):
-    monkeypatch.setattr("sys.stdin", io.StringIO("from stdin"))
+def test_description_from_stdin(call, stdin):
+    stdin("from stdin")
     assert call("issue", "create", "--space", "ENG", "--title", "T",
                 "--description-file", "-")[1]["description"] == "from stdin"
+
+
+def test_stdin_is_utf8_whatever_the_locale(call, stdin):
+    stdin("café ✓", locale_encoding="latin-1")
+    assert call("issue", "create", "--space", "ENG", "--title", "T",
+                "--description-file", "-")[1]["description"] == "café ✓"
 
 
 def test_description_is_required(usage_error):
@@ -274,6 +278,20 @@ def test_all_stops_at_failed_page(run):
     assert code == cli.EXIT_FAULT
     assert out == failure
     assert len(invoker.calls) == 2
+
+
+@pytest.mark.parametrize("data", [
+    None,
+    {"cursor": None},
+    {"items": {}, "cursor": None},
+    {"items": [], "cursor": 1},
+])
+def test_all_rejects_a_malformed_page(run, data):
+    code, out, _ = run(["--env", "dev", "space", "list", "--all"],
+                       [{"ok": True, "data": data}])
+
+    assert code == cli.EXIT_FAULT
+    assert out["error"]["type"] == "InvokeError"
 
 
 def test_without_all_returns_one_page(run):
