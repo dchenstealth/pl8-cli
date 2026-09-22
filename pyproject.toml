@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Daniel Chen
+#
+# SPDX-License-Identifier: MIT
+
+[project]
+name = "pl8-cli"
+version = "0.0.1"
+description = "Agent-friendly CLI for PL8, a lightweight issue tracker backed by DynamoDB"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Daniel Chen", email = "dchenstealth@gmail.com" }
+]
+requires-python = ">=3.11"
+keywords = ["issue-tracker", "cli", "agents", "aws", "lambda"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    # crt is what botocore needs to use `aws login` sessions (login_session in
+    # ~/.aws/config); without it, those credentials fail to load.
+    "boto3[crt]~=1.43.40",
+]
+
+# pl8-cli is the name uvx runs by default (`uvx pl8-cli ...`); pl8 is the
+# short name once installed (`uv tool install pl8-cli`).
+[project.scripts]
+pl8 = "pl8_cli.cli:main"
+pl8-cli = "pl8_cli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dchenstealth/pl8-cli"
+Repository = "https://github.com/dchenstealth/pl8-cli"
+Issues = "https://github.com/dchenstealth/pl8-cli/issues"
+
+[dependency-groups]
+dev = [
+    "ruff~=0.16.8",
+    "pytest~=9.1.1",
+    "pyyaml~=6.0.3",
+    "fastjsonschema~=2.22.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"

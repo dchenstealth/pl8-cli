@@ -1,0 +1,18 @@
+version = 1
+
+[[annotations]]
+path = [
+    ".gitattributes",
+    ".gitignore",
+    ".python-version",
+    "uv.lock",
+    "README.md",
+    "CONTRIBUTING.md",
+    "tests/contract/README.md",
+    # Verbatim copy from pl8-services (same author and license), kept
+    # byte-identical so it can be diffed against its source.
+    "tests/contract/operations.yaml",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Daniel Chen"
+SPDX-License-Identifier = "MIT"
