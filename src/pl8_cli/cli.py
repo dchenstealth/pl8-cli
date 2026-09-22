@@ -199,8 +199,8 @@ def issue_ref(args, ref):
     return default_space(args), ref
 
 
-def add_issue_ref(parser, name="issue"):
-    parser.add_argument(name, metavar="SPACE/ISSUE_ID",
+def add_issue_ref(parser):
+    parser.add_argument("issue", metavar="SPACE/ISSUE_ID",
                         help="the Issue, as SPACE/ISSUE_ID or a bare ISSUE_ID")
 
 
@@ -319,6 +319,66 @@ def issue_params(args):
     return {"space_id": space_id, "issue_id": issue_id}
 
 
+# pl8 blocker
+
+def add_blocker(subparsers, common):
+    blocker = subparsers.add_parser("blocker", help="add, remove and list blocking "
+                                                    "relationships between Issues")
+    verbs = blocker.add_subparsers(title="commands", metavar="COMMAND", required=True)
+
+    parser = verbs.add_parser("add", parents=[common], help="make one Issue block another",
+                              description="Make --blocking block --blocked, which moves "
+                                          "the blocked Issue to BLOCKED. It returns to "
+                                          "TODO, in the background, once every Issue "
+                                          "blocking it is DONE or deleted. The blocking "
+                                          "Issue can't be DONE.")
+    add_blocker_pair(parser)
+    parser.set_defaults(build=lambda args: Request("add_issue_blocker",
+                                                   blocker_params(args)))
+
+    parser = verbs.add_parser("remove", parents=[common],
+                              help="remove a blocking relationship")
+    add_blocker_pair(parser)
+    parser.set_defaults(build=lambda args: Request("delete_issue_blocker",
+                                                   blocker_params(args)))
+
+    parser = verbs.add_parser("list", parents=[common],
+                              help="list what blocks an Issue, or what it blocks")
+    add_space_option(parser)
+    side = parser.add_mutually_exclusive_group(required=True)
+    side.add_argument("--blocked", metavar="SPACE/ISSUE_ID",
+                      help="list the IssueBlockers blocking this Issue")
+    side.add_argument("--blocking", metavar="SPACE/ISSUE_ID",
+                      help="list the IssueBlockers where this Issue is the blocker")
+    add_paging(parser)
+    parser.set_defaults(build=build_blocker_list)
+
+
+def add_blocker_pair(parser):
+    add_space_option(parser)
+    parser.add_argument("--blocking", metavar="SPACE/ISSUE_ID", required=True,
+                        help="the Issue that blocks")
+    parser.add_argument("--blocked", metavar="SPACE/ISSUE_ID", required=True,
+                        help="the Issue that is blocked")
+
+
+def blocker_params(args):
+    blocking_space, blocking_id = issue_ref(args, args.blocking)
+    blocked_space, blocked_id = issue_ref(args, args.blocked)
+    return {"blocking_issue_space_id": blocking_space, "blocking_issue_id": blocking_id,
+            "blocked_issue_space_id": blocked_space, "blocked_issue_id": blocked_id}
+
+
+def build_blocker_list(args):
+    if args.blocked is not None:
+        space_id, issue_id = issue_ref(args, args.blocked)
+        return paged(args, "get_issue_blockers",
+                     {"space_id": space_id, "blocked_issue_id": issue_id})
+    space_id, issue_id = issue_ref(args, args.blocking)
+    return paged(args, "get_issue_blocking",
+                 {"space_id": space_id, "blocking_issue_id": issue_id})
+
+
 def build_parser():
     common = common_options()
     parser = ArgumentParser(
@@ -332,6 +392,7 @@ def build_parser():
                                        required=True)
     add_space(subparsers, common)
     add_issue(subparsers, common)
+    add_blocker(subparsers, common)
     add_invoke(subparsers, common)
     return parser
 

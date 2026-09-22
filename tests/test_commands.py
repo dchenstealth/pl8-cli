@@ -142,6 +142,56 @@ def test_issue_delete(call):
         "delete_issue", {"space_id": "ENG", "issue_id": "abc123"})
 
 
+# pl8 blocker
+
+BLOCKER_PARAMS = {"blocking_issue_space_id": "ENG", "blocking_issue_id": "aaa111",
+                  "blocked_issue_space_id": "OPS", "blocked_issue_id": "bbb222"}
+
+
+def test_blocker_add(call):
+    assert call("blocker", "add", "--blocking", "ENG/aaa111", "--blocked", "OPS/bbb222") == (
+        "add_issue_blocker", BLOCKER_PARAMS)
+
+
+def test_blocker_remove(call):
+    assert call("blocker", "remove", "--blocking", "ENG/aaa111",
+                "--blocked", "OPS/bbb222") == ("delete_issue_blocker", BLOCKER_PARAMS)
+
+
+def test_blocker_pair_mixes_references_and_default_space(call):
+    # The explicit OPS reference doesn't conflict with --space ENG.
+    assert call("blocker", "add", "--space", "ENG", "--blocking", "aaa111",
+                "--blocked", "OPS/bbb222")[1] == BLOCKER_PARAMS
+
+
+def test_blocker_add_needs_both_sides(usage_error):
+    usage_error("blocker", "add", "--blocking", "ENG/aaa111")
+
+
+def test_blocker_list_blocked(call):
+    assert call("blocker", "list", "--blocked", "OPS/bbb222", "--limit", "5") == (
+        "get_issue_blockers", {"space_id": "OPS", "blocked_issue_id": "bbb222", "limit": 5})
+
+
+def test_blocker_list_blocking(call):
+    assert call("blocker", "list", "--blocking", "aaa111", "--space", "ENG",
+                "--cursor", "c1") == (
+        "get_issue_blocking", {"space_id": "ENG", "blocking_issue_id": "aaa111",
+                               "cursor": "c1"})
+
+
+def test_blocker_list_needs_exactly_one_side(usage_error):
+    usage_error("blocker", "list")
+    usage_error("blocker", "list", "--blocked", "OPS/b", "--blocking", "ENG/a")
+
+
+def test_blocker_list_all(run):
+    _, out, invoker = run(["--env", "dev", "blocker", "list", "--blocked", "OPS/bbb222",
+                           "--all"], [page([1], "c1"), page([2])])
+    assert out == page([1, 2])
+    assert len(invoker.calls) == 2
+
+
 # Issue references
 
 def test_bare_issue_id_takes_space_flag(call):
