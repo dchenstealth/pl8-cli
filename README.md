@@ -4,13 +4,135 @@ Agent-friendly command line for [PL8](https://github.com/dchenstealth/pl8-docs),
 a lightweight issue tracker backed by DynamoDB. It invokes the
 `pl8-interface` Lambda from
 [pl8-services](https://github.com/dchenstealth/pl8-services) through the
-Lambda `Invoke` API, authenticated with your AWS credentials.
+Lambda `Invoke` API, authenticated with your AWS credentials. PL8 has no UI;
+this is how people and agents use it.
+
+## Getting started
+
+Run it without installing, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uvx pl8-cli --env dev invoke get_spaces
+uvx pl8-cli --env dev space list
 ```
 
-Every command prints one JSON envelope on stdout,
-`{"ok": true, "data": ...}` or `{"ok": false, "error": {"type", "message"}}`,
-and exits 0 (ok), 1 (rejected by PL8), 2 (usage error) or 3 (transport or
-server fault).
+or install the shorter `pl8` command:
+
+```bash
+uv tool install pl8-cli
+pl8 --env dev space list
+```
+
+To run an unreleased revision, point uvx at the repo:
+`uvx --from git+https://github.com/dchenstealth/pl8-cli pl8 ...`.
+
+### Configuration
+
+| Setting | Flag | Environment variable |
+| --- | --- | --- |
+| Function to invoke | `--env ENV` (invokes `<ENV>-pl8-interface`) or `--function-name NAME` | `PL8_ENV` or `PL8_FUNCTION_NAME` |
+| Default space for bare issue ids | `--space SPACE` | `PL8_SPACE` |
+| AWS credentials and region | `--profile`, `--region` | the standard AWS chain (`AWS_PROFILE`, `~/.aws/config`, ...) |
+
+Flags beat environment variables, and a function name beats an env.
+Connection flags may go before or after the command.
+
+Your credentials need `lambda:InvokeFunction` on the function. pl8-services
+tags it `Type=PL8Interface` for granting that; the grant itself is managed
+outside these repos. `aws login` sessions work.
+
+## Output contract
+
+Every command prints exactly one JSON document on stdout, pl8-interface's
+response envelope:
+
+```json
+{"ok": true, "data": {"issue_id": "abc123", "status": "TODO", ...}}
+{"ok": false, "error": {"type": "DDBStillBlockedError", "message": "..."}}
+```
+
+Failures on the CLI side use the same shape. `--pretty` indents it. The exit
+status says what kind of failure it was:
+
+| Exit | Meaning | `error.type` |
+| --- | --- | --- |
+| 0 | Success | |
+| 1 | PL8 rejected the request. Fix it; retrying unchanged won't help. | `DDB*` errors, `InvalidParams`, `UnknownOperation`, `InvalidRequest` |
+| 2 | The command line was wrong; nothing was sent. | `UsageError` |
+| 3 | No trustworthy answer: transport failure or server fault. A write may or may not have been applied, so re-read before retrying it. | `InvokeError`, `FunctionError`, `DDBInternalError`, `DDBCorruptedError` |
+
+Writes are never retried automatically, since a write that timed out may
+already have been applied. Reads are retried on transient errors.
+
+See pl8-interface's
+[contract](https://github.com/dchenstealth/pl8-services/blob/main/src/pl8-interface/README.md)
+and pl8-base's
+[errors](https://github.com/dchenstealth/pl8-base/blob/main/src/pl8_base/errors.py)
+for what each `DDB*` error means.
+
+## Commands
+
+Every command has `--help`, which spells out the rules it enforces.
+
+```
+pl8 space create SPACE_ID --name NAME --description TEXT
+pl8 space get SPACE_ID
+pl8 space list
+pl8 space update SPACE_ID --name NAME --description TEXT [--if-version N]
+pl8 space delete SPACE_ID
+
+pl8 issue create --title TITLE --description TEXT [--status STATUS]
+pl8 issue get ISSUE
+pl8 issue list --status STATUS
+pl8 issue update ISSUE --title TITLE --description TEXT [--if-version N]
+pl8 issue transition ISSUE --status STATUS [--if-version N]
+pl8 issue delete ISSUE
+
+pl8 blocker add --blocking ISSUE --blocked ISSUE
+pl8 blocker remove --blocking ISSUE --blocked ISSUE
+pl8 blocker list (--blocked ISSUE | --blocking ISSUE)
+
+pl8 invoke OPERATION [--params JSON | --params-file PATH]
+```
+
+- **Issues** are named `SPACE/ISSUE_ID`, e.g. `ENG/abc123`. A bare
+  `ISSUE_ID` takes its space from `--space` or `PL8_SPACE`; a space in the
+  reference always wins, so cross-space blockers need nothing extra.
+- **Descriptions** can come from a file with `--description-file PATH`, or
+  from stdin with `--description-file -`, which avoids shell quoting.
+- **Lists** return `{"items": [...], "cursor": ...}`. Pass `--cursor` back
+  for the next page, set the page size with `--limit` (1-100), or use
+  `--all` to fetch every page at once.
+- **Updates** replace both fields. `--if-version N` makes the write fail
+  with `DDBVersionConflictError` if the item changed since you read version
+  `N`.
+- **`invoke`** sends any operation and params unchanged, for operations
+  that don't have a subcommand yet.
+
+### Example
+
+```bash
+export PL8_ENV=dev PL8_SPACE=ENG
+
+id=$(pl8 issue create --title "Fix login" --description-file notes.md | jq -r .data.issue_id)
+pl8 blocker add --blocking OPS/k8s123 --blocked "$id"
+pl8 issue list --status BLOCKED --all
+```
+
+An Issue that gains a blocker moves to BLOCKED. It returns to TODO in the
+background once every Issue blocking it is DONE or deleted, or its blockers
+are removed.
+
+## Development
+
+```bash
+uv sync
+uv run ruff check .
+uv run pytest
+```
+
+`tests/test_contract.py` checks every subcommand against a pinned copy of
+pl8-interface's `operations.yaml`; see
+[`tests/contract/README.md`](tests/contract/README.md) to refresh it.
+
+Releases publish to PyPI when a `vX.Y.Z` tag matching `pyproject.toml`'s
+version is pushed.
