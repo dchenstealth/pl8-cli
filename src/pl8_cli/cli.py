@@ -251,9 +251,9 @@ def add_space(subparsers, common):
         "description": description(args)})))
 
     parser = verbs.add_parser("delete", parents=[common], help="delete a Space",
-                              description="Delete a Space. Its Issues are kept, and "
-                                          "a Space recreated with the same id takes "
-                                          "them up again.")
+                              description="Delete a Space. Fails with "
+                                          "DDBSpaceNotEmptyError while it has any "
+                                          "Issues; delete them first.")
     parser.add_argument("space_id")
     parser.set_defaults(build=lambda args: Request("delete_space", {"space_id": args.space_id}))
 
@@ -267,7 +267,8 @@ def add_issue(subparsers, common):
 
     parser = verbs.add_parser("create", parents=[common], help="create an Issue",
                               description="Create an Issue in --space (or $PL8_SPACE). "
-                                          "The Space need not exist.")
+                                          "Fails with DDBMissingError if the Space "
+                                          "doesn't exist; create it first.")
     add_space_option(parser)
     parser.add_argument("--title", required=True)
     add_description(parser)
