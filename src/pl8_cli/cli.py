@@ -13,6 +13,10 @@ Output contract, so agents can drive it without scraping text:
 
 Parameters are passed through for pl8-interface to validate, so its JSON
 Schema stays the only statement of what a valid request is.
+
+Issues are named SPACE/ISSUE_ID. A bare ISSUE_ID takes its space from
+--space, then $PL8_SPACE; a space in the reference itself always wins, so
+cross-space references need no extra flags.
 """
 
 import argparse
@@ -46,6 +50,10 @@ FAULT_ERRORS = frozenset({
 
 FUNCTION_SUFFIX = "-pl8-interface"
 
+# pl8-base's IssueStatus. Listed here for --help; pl8-interface still
+# validates.
+STATUSES = ("TODO", "BLOCKED", "IN_PROGRESS", "DONE")
+
 
 class UsageError(Exception):
     pass
@@ -54,6 +62,8 @@ class UsageError(Exception):
 class Request(NamedTuple):
     operation: str
     params: dict
+    # Follow cursors and return every page's items as one page.
+    all_pages: bool = False
 
 
 class ArgumentParser(argparse.ArgumentParser):
@@ -125,6 +135,190 @@ def build_invoke(args):
     return Request(args.operation, params)
 
 
+# Shared arguments
+
+def add_description(parser):
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--description", help="description text")
+    group.add_argument("--description-file", metavar="PATH",
+                       help='read the description from PATH ("-" for stdin); '
+                            "avoids shell quoting for long or multi-line text")
+
+
+def description(args):
+    if args.description_file is not None:
+        return read_text(args.description_file)
+    return args.description
+
+
+def add_version(parser):
+    # Not --version, which reads as the program's version.
+    parser.add_argument("--if-version", type=int, metavar="VERSION",
+                        help="only write if the item is still at this version "
+                             "(from its last read); fails with "
+                             "DDBVersionConflictError otherwise")
+
+
+def versioned(args, params):
+    if args.if_version is not None:
+        params["version"] = args.if_version
+    return params
+
+
+def add_paging(parser):
+    parser.add_argument("--limit", type=int, help="page size, 1-100 (default: 50)")
+    parser.add_argument("--cursor", help="resume from the cursor a previous page returned")
+    parser.add_argument("--all", action="store_true",
+                        help="follow cursors and return every item as one page")
+
+
+def paged(args, operation, params):
+    if args.limit is not None:
+        params["limit"] = args.limit
+    if args.cursor is not None:
+        params["cursor"] = args.cursor
+    return Request(operation, params, all_pages=args.all)
+
+
+def add_space_option(parser):
+    parser.add_argument("--space", help="space for bare issue ids (default: $PL8_SPACE)")
+
+
+def default_space(args):
+    if space := args.space or os.environ.get("PL8_SPACE"):
+        return space
+    raise UsageError("No space: pass --space, set PL8_SPACE, or name the Issue "
+                     "as SPACE/ISSUE_ID")
+
+
+def issue_ref(args, ref):
+    """Split SPACE/ISSUE_ID, or pair a bare id with the default space."""
+    space, sep, issue_id = ref.partition("/")
+    if sep:
+        return space, issue_id
+    return default_space(args), ref
+
+
+def add_issue_ref(parser, name="issue"):
+    parser.add_argument(name, metavar="SPACE/ISSUE_ID",
+                        help="the Issue, as SPACE/ISSUE_ID or a bare ISSUE_ID")
+
+
+# pl8 space
+
+def add_space(subparsers, common):
+    space = subparsers.add_parser("space", help="create, read, update and delete Spaces")
+    verbs = space.add_subparsers(title="commands", metavar="COMMAND", required=True)
+
+    parser = verbs.add_parser("create", parents=[common], help="create a Space",
+                              description="Create a Space. Fails with DDBExistsError "
+                                          "if the id is taken.")
+    parser.add_argument("space_id", help="1-64 characters from [A-Za-z0-9_-]")
+    parser.add_argument("--name", required=True)
+    add_description(parser)
+    parser.set_defaults(build=lambda args: Request("create_space", {
+        "space_id": args.space_id, "name": args.name,
+        "description": description(args)}))
+
+    parser = verbs.add_parser("get", parents=[common], help="get a Space")
+    parser.add_argument("space_id")
+    parser.set_defaults(build=lambda args: Request("get_space", {"space_id": args.space_id}))
+
+    parser = verbs.add_parser("list", parents=[common], help="list Spaces, by id")
+    add_paging(parser)
+    parser.set_defaults(build=lambda args: paged(args, "get_spaces", {}))
+
+    parser = verbs.add_parser("update", parents=[common], help="update a Space",
+                              description="Replace a Space's name and description; "
+                                          "pass both.")
+    parser.add_argument("space_id")
+    parser.add_argument("--name", required=True)
+    add_description(parser)
+    add_version(parser)
+    parser.set_defaults(build=lambda args: Request("update_space", versioned(args, {
+        "space_id": args.space_id, "name": args.name,
+        "description": description(args)})))
+
+    parser = verbs.add_parser("delete", parents=[common], help="delete a Space",
+                              description="Delete a Space. Its Issues are kept, and "
+                                          "a Space recreated with the same id takes "
+                                          "them up again.")
+    parser.add_argument("space_id")
+    parser.set_defaults(build=lambda args: Request("delete_space", {"space_id": args.space_id}))
+
+
+# pl8 issue
+
+def add_issue(subparsers, common):
+    issue = subparsers.add_parser("issue", help="create, read, update, transition and "
+                                                "delete Issues")
+    verbs = issue.add_subparsers(title="commands", metavar="COMMAND", required=True)
+
+    parser = verbs.add_parser("create", parents=[common], help="create an Issue",
+                              description="Create an Issue in --space (or $PL8_SPACE). "
+                                          "The Space need not exist.")
+    add_space_option(parser)
+    parser.add_argument("--title", required=True)
+    add_description(parser)
+    parser.add_argument("--status", choices=STATUSES, default="TODO",
+                        help="initial status (default: TODO)")
+    parser.set_defaults(build=lambda args: Request("create_issue", {
+        "space_id": default_space(args), "title": args.title,
+        "description": description(args), "status": args.status}))
+
+    parser = verbs.add_parser("get", parents=[common], help="get an Issue")
+    add_issue_ref(parser)
+    add_space_option(parser)
+    parser.set_defaults(build=lambda args: Request("get_issue", issue_params(args)))
+
+    parser = verbs.add_parser("list", parents=[common],
+                              help="list a space's Issues in one status",
+                              description="List the Issues in --space (or $PL8_SPACE) "
+                                          "with a status, longest in that status "
+                                          "first.")
+    add_space_option(parser)
+    parser.add_argument("--status", choices=STATUSES, required=True)
+    add_paging(parser)
+    parser.set_defaults(build=lambda args: paged(args, "get_issues_by_status", {
+        "space_id": default_space(args), "status": args.status}))
+
+    parser = verbs.add_parser("update", parents=[common], help="update an Issue",
+                              description="Replace an Issue's title and description; "
+                                          "pass both.")
+    add_issue_ref(parser)
+    add_space_option(parser)
+    parser.add_argument("--title", required=True)
+    add_description(parser)
+    add_version(parser)
+    parser.set_defaults(build=lambda args: Request("update_issue", versioned(args, {
+        **issue_params(args), "title": args.title,
+        "description": description(args)})))
+
+    parser = verbs.add_parser("transition", parents=[common],
+                              help="move an Issue to a status",
+                              description="Move an Issue to a status. DONE is final, "
+                                          "and an Issue can't leave BLOCKED while it "
+                                          "has active blockers.")
+    add_issue_ref(parser)
+    add_space_option(parser)
+    parser.add_argument("--status", choices=STATUSES, required=True)
+    add_version(parser)
+    parser.set_defaults(build=lambda args: Request("transition_issue", versioned(args, {
+        **issue_params(args), "status": args.status})))
+
+    parser = verbs.add_parser("delete", parents=[common], help="delete an Issue",
+                              description="Delete an Issue. Blockers naming it are "
+                                          "removed in the background.")
+    add_issue_ref(parser)
+    add_space_option(parser)
+    parser.set_defaults(build=lambda args: Request("delete_issue", issue_params(args)))
+
+
+def issue_params(args):
+    space_id, issue_id = issue_ref(args, args.issue)
+    return {"space_id": space_id, "issue_id": issue_id}
+
+
 def build_parser():
     common = common_options()
     parser = ArgumentParser(
@@ -136,6 +330,8 @@ def build_parser():
                         version=f"%(prog)s {version('pl8-cli')}")
     subparsers = parser.add_subparsers(title="commands", metavar="COMMAND",
                                        required=True)
+    add_space(subparsers, common)
+    add_issue(subparsers, common)
     add_invoke(subparsers, common)
     return parser
 
@@ -168,6 +364,24 @@ def exit_code(envelope):
     return EXIT_REJECTED
 
 
+def collect_pages(invoker, request):
+    """Follow cursors to the end; one envelope holding every page's items.
+
+    Stops at the first failed page and returns that failure, since a partial
+    list would read as a complete one.
+    """
+    params = request.params
+    items = []
+    while True:
+        envelope = invoker.invoke(request.operation, params)
+        if not envelope["ok"]:
+            return envelope
+        items.extend(envelope["data"]["items"])
+        if envelope["data"]["cursor"] is None:
+            return {"ok": True, "data": {"items": items, "cursor": None}}
+        params = {**params, "cursor": envelope["data"]["cursor"]}
+
+
 def emit(envelope, *, pretty=False):
     print(json.dumps(envelope, indent=2 if pretty else None))
 
@@ -183,6 +397,9 @@ def main(argv=None, *, make_invoker=Invoker):
     invoker = make_invoker(function_name,
                            profile=getattr(args, "profile", None),
                            region=getattr(args, "region", None))
-    envelope = invoker.invoke(request.operation, request.params)
+    if request.all_pages:
+        envelope = collect_pages(invoker, request)
+    else:
+        envelope = invoker.invoke(request.operation, request.params)
     emit(envelope, pretty=getattr(args, "pretty", False))
     return exit_code(envelope)
