@@ -45,6 +45,8 @@ Issues = "https://github.com/dchenstealth/pl8-cli/issues"
 dev = [
     "ruff~=0.16.8",
     "pytest~=9.1.1",
+    "pyyaml~=6.0.3",
+    "fastjsonschema~=2.22.2",
 ]
 
 [tool.pytest.ini_options]

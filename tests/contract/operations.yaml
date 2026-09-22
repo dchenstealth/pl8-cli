@@ -1,0 +1,167 @@
+# operations lists what callers may invoke: each entry maps a BasePL8 method
+# to the JSON Schema its params must satisfy. tests/test_operations_yaml.py
+# keeps these in step with the method signatures. Operations marked
+# paginated: true return (items, cursor) and are shaped into
+# {"items", "cursor"}.
+#
+# Other top-level keys hold shared schema fragments, referenced by anchor.
+
+issue_status: &issue_status {type: string, enum: [TODO, BLOCKED, IN_PROGRESS, DONE]}
+
+operations:
+  - method: create_space
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, name, description]
+      properties:
+        space_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+
+  - method: get_space
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id]
+      properties:
+        space_id: {type: string}
+
+  - method: get_spaces
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+
+  - method: update_space
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, name, description]
+      properties:
+        space_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        version: {type: integer, minimum: 1}
+
+  - method: delete_space
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id]
+      properties:
+        space_id: {type: string}
+
+  - method: create_issue
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, title, description, status]
+      properties:
+        space_id: {type: string}
+        title: {type: string}
+        description: {type: string}
+        status: *issue_status
+
+  - method: get_issue
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+
+  - method: get_issues_by_status
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, status]
+      properties:
+        space_id: {type: string}
+        status: *issue_status
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+
+  - method: update_issue
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, title, description]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        title: {type: string}
+        description: {type: string}
+        version: {type: integer, minimum: 1}
+
+  - method: transition_issue
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, status]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        status: *issue_status
+        version: {type: integer, minimum: 1}
+
+  - method: delete_issue
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+
+  - method: add_issue_blocker
+    schema:
+      type: object
+      additionalProperties: false
+      required: [blocking_issue_space_id, blocking_issue_id, blocked_issue_space_id, blocked_issue_id]
+      properties:
+        blocking_issue_space_id: {type: string}
+        blocking_issue_id: {type: string}
+        blocked_issue_space_id: {type: string}
+        blocked_issue_id: {type: string}
+
+  - method: delete_issue_blocker
+    schema:
+      type: object
+      additionalProperties: false
+      required: [blocking_issue_space_id, blocking_issue_id, blocked_issue_space_id, blocked_issue_id]
+      properties:
+        blocking_issue_space_id: {type: string}
+        blocking_issue_id: {type: string}
+        blocked_issue_space_id: {type: string}
+        blocked_issue_id: {type: string}
+
+  - method: get_issue_blockers
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, blocked_issue_id]
+      properties:
+        space_id: {type: string}
+        blocked_issue_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+
+  - method: get_issue_blocking
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, blocking_issue_id]
+      properties:
+        space_id: {type: string}
+        blocking_issue_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
