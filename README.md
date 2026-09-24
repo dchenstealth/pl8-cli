@@ -95,6 +95,8 @@ pl8 blocker list (--blocked ISSUE | --blocking ISSUE)
 pl8 invoke OPERATION [--params JSON | --params-file PATH]
 ```
 
+- **Spaces** must exist before you create Issues in them, and must have no
+  Issues left before you delete them.
 - **Issues** are named `SPACE/ISSUE_ID`, e.g. `ENG/abc123`. A bare
   `ISSUE_ID` takes its space from `--space` or `PL8_SPACE`; a space in the
   reference always wins, so cross-space blockers need nothing extra.
