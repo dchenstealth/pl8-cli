@@ -21,7 +21,8 @@ def aws_environment(monkeypatch):
     monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
     monkeypatch.setenv("AWS_DEFAULT_REGION", REGION)
-    for name in ("AWS_PROFILE", "PL8_ENV", "PL8_FUNCTION_NAME", "PL8_SPACE"):
+    for name in ("AWS_PROFILE", "PL8_ENV", "PL8_FUNCTION_NAME", "PL8_SPACE",
+                 "PL8_CREATOR"):
         monkeypatch.delenv(name, raising=False)
 
 

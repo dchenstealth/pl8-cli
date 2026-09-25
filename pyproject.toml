@@ -4,7 +4,7 @@
 
 [project]
 name = "pl8-cli"
-version = "0.0.2"
+version = "0.0.3"
 description = "Agent-friendly CLI for PL8, a lightweight issue tracker backed by DynamoDB"
 readme = "README.md"
 license = "MIT"

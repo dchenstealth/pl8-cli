@@ -39,9 +39,9 @@ def usage_error(run):
 
 def test_space_create(call):
     assert call("space", "create", "ENG", "--name", "Engineering",
-                "--description", "Eng work") == (
+                "--description", "Eng work", "--creator", "alice") == (
         "create_space", {"space_id": "ENG", "name": "Engineering",
-                         "description": "Eng work"})
+                         "description": "Eng work", "creator": "alice"})
 
 
 def test_space_get(call):
@@ -76,22 +76,24 @@ def test_space_commands_ignore_default_space(call, monkeypatch):
 
 def test_issue_create(call):
     assert call("issue", "create", "--space", "ENG", "--title", "T",
-                "--description", "D") == (
+                "--description", "D", "--creator", "alice") == (
         "create_issue", {"space_id": "ENG", "title": "T", "description": "D",
-                         "status": "TODO"})
-    assert call("issue", "create", "--space", "ENG", "--title", "T",
-                "--description", "D", "--status", "IN_PROGRESS")[1]["status"] == "IN_PROGRESS"
+                         "status": "TODO", "creator": "alice"})
+    assert call("issue", "create", "--space", "ENG", "--title", "T", "--description", "D",
+                "--creator", "alice", "--status", "IN_PROGRESS")[1]["status"] == "IN_PROGRESS"
 
 
 def test_issue_create_uses_default_space(call, monkeypatch):
     monkeypatch.setenv("PL8_SPACE", "OPS")
+    monkeypatch.setenv("PL8_CREATOR", "alice")
     assert call("issue", "create", "--title", "T", "--description", "D")[1]["space_id"] == "OPS"
     # The flag beats the variable.
     assert call("issue", "create", "--space", "ENG", "--title", "T",
                 "--description", "D")[1]["space_id"] == "ENG"
 
 
-def test_issue_create_needs_a_space(usage_error):
+def test_issue_create_needs_a_space(usage_error, monkeypatch):
+    monkeypatch.setenv("PL8_CREATOR", "alice")
     assert "PL8_SPACE" in usage_error("issue", "create", "--title", "T", "--description", "D")
 
 
@@ -138,6 +140,34 @@ def test_issue_transition(call):
 def test_issue_delete(call):
     assert call("issue", "delete", "ENG/abc123") == (
         "delete_issue", {"space_id": "ENG", "issue_id": "abc123"})
+
+
+# Creators
+
+def test_creator_from_the_environment(call, monkeypatch):
+    monkeypatch.setenv("PL8_CREATOR", "agent-7")
+    assert call("space", "create", "ENG", "--name", "N",
+                "--description", "D")[1]["creator"] == "agent-7"
+    # The flag beats the variable.
+    assert call("space", "create", "ENG", "--name", "N", "--description", "D",
+                "--creator", "alice")[1]["creator"] == "alice"
+
+
+def test_creator_is_required(usage_error):
+    assert "PL8_CREATOR" in usage_error("space", "create", "ENG", "--name", "N",
+                                        "--description", "D")
+
+
+@pytest.mark.parametrize("argv", [
+    ("space", "get", "ENG"),
+    ("issue", "get", "ENG/abc123"),
+    ("issue", "update", "ENG/abc123", "--title", "T", "--description", "D"),
+    ("comment", "update", "ENG/abc123", "c1", "--body", "B"),
+])
+def test_only_creates_take_a_creator(call, usage_error, argv):
+    """An update never changes the creator, so no command but a create has one."""
+    assert "creator" not in call(*argv)[1]
+    usage_error(*argv, "--creator", "alice")
 
 
 # pl8 blocker
@@ -190,6 +220,83 @@ def test_blocker_list_all(run):
     assert len(invoker.calls) == 2
 
 
+# pl8 comment
+
+COMMENT_ID = "0199f3a1-0000-7000-8000-000000000000"
+ISSUE_PARAMS = {"space_id": "ENG", "issue_id": "abc123"}
+COMMENT_PARAMS = {**ISSUE_PARAMS, "comment_id": COMMENT_ID}
+
+
+def test_comment_add(call):
+    assert call("comment", "add", "ENG/abc123", "--body", "Reproduced on Safari",
+                "--creator", "alice") == (
+        "create_issue_comment", {**ISSUE_PARAMS, "body": "Reproduced on Safari",
+                                 "creator": "alice"})
+
+
+def test_comment_add_takes_a_bare_issue_id(call, monkeypatch):
+    monkeypatch.setenv("PL8_SPACE", "OPS")
+    monkeypatch.setenv("PL8_CREATOR", "alice")
+    assert call("comment", "add", "abc123", "--body", "B")[1]["space_id"] == "OPS"
+
+
+def test_comment_add_needs_a_body(usage_error):
+    usage_error("comment", "add", "ENG/abc123", "--creator", "alice")
+
+
+def test_comment_body_from_a_file(call, tmp_path):
+    path = tmp_path / "body.md"
+    path.write_text("Line one\n\n`quoted` $text\n", encoding="utf-8")
+    assert call("comment", "add", "ENG/abc123", "--body-file", str(path),
+                "--creator", "alice")[1]["body"] == "Line one\n\n`quoted` $text\n"
+
+
+def test_comment_body_from_stdin(call, stdin):
+    stdin("from stdin")
+    assert call("comment", "add", "ENG/abc123", "--body-file", "-",
+                "--creator", "alice")[1]["body"] == "from stdin"
+
+
+def test_comment_body_and_file_are_exclusive(usage_error):
+    usage_error("comment", "add", "ENG/abc123", "--body", "B", "--body-file", "-",
+                "--creator", "alice")
+
+
+def test_comment_get(call):
+    assert call("comment", "get", "ENG/abc123", COMMENT_ID) == (
+        "get_issue_comment", COMMENT_PARAMS)
+
+
+def test_comment_list(call):
+    assert call("comment", "list", "ENG/abc123") == ("get_issue_comments", ISSUE_PARAMS)
+    assert call("comment", "list", "ENG/abc123", "--limit", "5", "--cursor", "c1") == (
+        "get_issue_comments", {**ISSUE_PARAMS, "limit": 5, "cursor": "c1"})
+
+
+def test_comment_list_all(run):
+    _, out, invoker = run(["--env", "dev", "comment", "list", "ENG/abc123", "--all"],
+                          [page([1], "c1"), page([2])])
+    assert out == page([1, 2])
+    assert len(invoker.calls) == 2
+
+
+def test_comment_update(call):
+    assert call("comment", "update", "ENG/abc123", COMMENT_ID, "--body", "B") == (
+        "update_issue_comment", {**COMMENT_PARAMS, "body": "B"})
+    assert call("comment", "update", "ENG/abc123", COMMENT_ID, "--body", "B",
+                "--if-version", "3")[1]["version"] == 3
+
+
+def test_comment_delete(call):
+    assert call("comment", "delete", "ENG/abc123", COMMENT_ID) == (
+        "delete_issue_comment", COMMENT_PARAMS)
+
+
+def test_comment_id_is_not_slash_joined(usage_error):
+    """A comment is named by two arguments, not one reference."""
+    usage_error("comment", "get", f"ENG/abc123/{COMMENT_ID}")
+
+
 # Issue references
 
 def test_bare_issue_id_takes_space_flag(call):
@@ -217,19 +324,20 @@ def test_bare_issue_id_without_space(usage_error):
 def test_description_file(call, tmp_path):
     path = tmp_path / "desc.md"
     path.write_text("Line one\n\n`quoted` $text\n", encoding="utf-8")
-    assert call("space", "create", "ENG", "--name", "N", "--description-file",
-                str(path))[1]["description"] == "Line one\n\n`quoted` $text\n"
+    assert call("space", "create", "ENG", "--name", "N", "--creator", "alice",
+                "--description-file", str(path)
+                )[1]["description"] == "Line one\n\n`quoted` $text\n"
 
 
 def test_description_from_stdin(call, stdin):
     stdin("from stdin")
-    assert call("issue", "create", "--space", "ENG", "--title", "T",
+    assert call("issue", "create", "--space", "ENG", "--title", "T", "--creator", "alice",
                 "--description-file", "-")[1]["description"] == "from stdin"
 
 
 def test_stdin_is_utf8_whatever_the_locale(call, stdin):
     stdin("café ✓", locale_encoding="latin-1")
-    assert call("issue", "create", "--space", "ENG", "--title", "T",
+    assert call("issue", "create", "--space", "ENG", "--title", "T", "--creator", "alice",
                 "--description-file", "-")[1]["description"] == "café ✓"
 
 
