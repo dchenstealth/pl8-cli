@@ -13,11 +13,12 @@ operations:
     schema:
       type: object
       additionalProperties: false
-      required: [space_id, name, description]
+      required: [space_id, name, description, creator]
       properties:
         space_id: {type: string}
         name: {type: string}
         description: {type: string}
+        creator: {type: string}
 
   - method: get_space
     schema:
@@ -60,12 +61,13 @@ operations:
     schema:
       type: object
       additionalProperties: false
-      required: [space_id, title, description, status]
+      required: [space_id, title, description, status, creator]
       properties:
         space_id: {type: string}
         title: {type: string}
         description: {type: string}
         status: *issue_status
+        creator: {type: string}
 
   - method: get_issue
     schema:
@@ -119,6 +121,61 @@ operations:
       properties:
         space_id: {type: string}
         issue_id: {type: string}
+
+  - method: create_issue_comment
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, body, creator]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        body: {type: string}
+        creator: {type: string}
+
+  - method: get_issue_comment
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, comment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        comment_id: {type: string}
+
+  - method: get_issue_comments
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+
+  - method: update_issue_comment
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, comment_id, body]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        comment_id: {type: string}
+        body: {type: string}
+        version: {type: integer, minimum: 1}
+
+  - method: delete_issue_comment
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, comment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        comment_id: {type: string}
 
   - method: add_issue_blocker
     schema:

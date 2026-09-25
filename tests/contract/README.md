@@ -5,7 +5,7 @@ allow-list, from
 [pl8-services](https://github.com/dchenstealth/pl8-services) at:
 
 ```
-src/pl8-interface/src/pl8_interface/operations.yaml @ cd0bbc3f00417ea8b67a6aac7bc3b89dc466ae69
+src/pl8-interface/src/pl8_interface/operations.yaml @ 87d45bac7a5818ce73bbce4cc8cdc87d9a02e06e
 ```
 
 `tests/test_contract.py` checks the CLI against it: every operation is

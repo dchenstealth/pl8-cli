@@ -29,13 +29,14 @@ OPERATIONS = {
 }
 
 REF = "ENG/abc123"
+COMMENT_ID = "0199f3a1-0000-7000-8000-000000000000"
 PAGING = ["--limit", "10", "--cursor", "c1"]
 
 # subcommand: (required-only argv, argv with every optional too)
 CASES = {
     ("space", "create"): (
-        ["ENG", "--name", "N", "--description", "D"],
-        ["ENG", "--name", "N", "--description", "D"]),
+        ["ENG", "--name", "N", "--description", "D", "--creator", "alice"],
+        ["ENG", "--name", "N", "--description", "D", "--creator", "alice"]),
     ("space", "get"): (["ENG"], ["ENG"]),
     ("space", "list"): ([], PAGING),
     ("space", "update"): (
@@ -43,8 +44,9 @@ CASES = {
         ["ENG", "--name", "N", "--description", "D", "--if-version", "2"]),
     ("space", "delete"): (["ENG"], ["ENG"]),
     ("issue", "create"): (
-        ["--space", "ENG", "--title", "T", "--description", "D"],
-        ["--space", "ENG", "--title", "T", "--description", "D", "--status", "BLOCKED"]),
+        ["--space", "ENG", "--title", "T", "--description", "D", "--creator", "alice"],
+        ["--space", "ENG", "--title", "T", "--description", "D", "--creator", "alice",
+         "--status", "BLOCKED"]),
     ("issue", "get"): ([REF], [REF]),
     ("issue", "list"): (
         ["--space", "ENG", "--status", "TODO"],
@@ -56,6 +58,15 @@ CASES = {
         [REF, "--status", "DONE"],
         [REF, "--status", "DONE", "--if-version", "2"]),
     ("issue", "delete"): ([REF], [REF]),
+    ("comment", "add"): (
+        [REF, "--body", "B", "--creator", "alice"],
+        [REF, "--body", "B", "--creator", "alice"]),
+    ("comment", "get"): ([REF, COMMENT_ID], [REF, COMMENT_ID]),
+    ("comment", "list"): ([REF], [REF, *PAGING]),
+    ("comment", "update"): (
+        [REF, COMMENT_ID, "--body", "B"],
+        [REF, COMMENT_ID, "--body", "B", "--if-version", "2"]),
+    ("comment", "delete"): ([REF, COMMENT_ID], [REF, COMMENT_ID]),
     ("blocker", "add"): (
         ["--blocking", REF, "--blocked", "OPS/def456"],
         ["--blocking", REF, "--blocked", "OPS/def456"]),

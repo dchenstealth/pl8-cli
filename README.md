@@ -31,6 +31,7 @@ To run an unreleased revision, point uvx at the repo:
 | --- | --- | --- |
 | Function to invoke | `--env ENV` (invokes `<ENV>-pl8-interface`) or `--function-name NAME` | `PL8_ENV` or `PL8_FUNCTION_NAME` |
 | Default space for bare issue ids | `--space SPACE` | `PL8_SPACE` |
+| Creator recorded on what you create | `--creator WHO` | `PL8_CREATOR` |
 | AWS credentials and region | `--profile`, `--region` | the standard AWS chain (`AWS_PROFILE`, `~/.aws/config`, ...) |
 
 Flags beat environment variables, and a function name beats an env.
@@ -88,6 +89,12 @@ pl8 issue update ISSUE --title TITLE --description TEXT [--if-version N]
 pl8 issue transition ISSUE --status STATUS [--if-version N]
 pl8 issue delete ISSUE
 
+pl8 comment add ISSUE --body TEXT
+pl8 comment get ISSUE COMMENT_ID
+pl8 comment list ISSUE
+pl8 comment update ISSUE COMMENT_ID --body TEXT [--if-version N]
+pl8 comment delete ISSUE COMMENT_ID
+
 pl8 blocker add --blocking ISSUE --blocked ISSUE
 pl8 blocker remove --blocking ISSUE --blocked ISSUE
 pl8 blocker list (--blocked ISSUE | --blocking ISSUE)
@@ -100,8 +107,18 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
 - **Issues** are named `SPACE/ISSUE_ID`, e.g. `ENG/abc123`. A bare
   `ISSUE_ID` takes its space from `--space` or `PL8_SPACE`; a space in the
   reference always wins, so cross-space blockers need nothing extra.
-- **Descriptions** can come from a file with `--description-file PATH`, or
-  from stdin with `--description-file -`, which avoids shell quoting.
+- **Comments** are named by their Issue and then their own `COMMENT_ID`, as
+  two arguments: `pl8 comment delete ENG/abc123 0199f3a1-...`. They are
+  listed oldest first, can be added to an Issue in any status including
+  `DONE`, and go away with the Issue they are on.
+- **Creators** are recorded by `space create`, `issue create` and
+  `comment add`. Set `PL8_CREATOR` once, or pass `--creator WHO`. It is a
+  label, not a login: PL8 never checks it against your AWS identity and no
+  command is allowed or refused on the basis of it, so give each agent its
+  own and a thread says which agent wrote what. Updates leave it alone.
+- **Long text** can come from a file with `--description-file PATH` (or
+  `--body-file` for a comment), or from stdin with `-`, which avoids shell
+  quoting.
 - **Lists** return `{"items": [...], "cursor": ...}`. Pass `--cursor` back
   for the next page, set the page size with `--limit` (1-100), or use
   `--all` to fetch every page at once.
@@ -114,11 +131,13 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
 ### Example
 
 ```bash
-export PL8_ENV=dev PL8_SPACE=ENG
+export PL8_ENV=dev PL8_SPACE=ENG PL8_CREATOR=alice
 
 id=$(pl8 issue create --title "Fix login" --description-file notes.md | jq -r .data.issue_id)
 pl8 blocker add --blocking OPS/k8s123 --blocked "$id"
 pl8 issue list --status BLOCKED --all
+pl8 comment add "$id" --body "Waiting on the cluster upgrade."
+pl8 comment list "$id"
 ```
 
 An Issue that gains a blocker moves to BLOCKED. It returns to TODO in the

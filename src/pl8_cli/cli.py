@@ -16,7 +16,9 @@ Schema stays the only statement of what a valid request is.
 
 Issues are named SPACE/ISSUE_ID. A bare ISSUE_ID takes its space from
 --space, then $PL8_SPACE; a space in the reference itself always wins, so
-cross-space references need no extra flags.
+cross-space references need no extra flags. A comment is named by its Issue
+and then its own id, as two arguments: a comment belongs to an Issue and is
+not addressable without it.
 """
 
 import argparse
@@ -148,18 +150,23 @@ def build_invoke(args):
 
 # Shared arguments
 
-def add_description(parser):
+def add_long_text(parser, name):
+    """--NAME or --NAME-file, exactly one required.
+
+    PL8's long text fields (an Issue's description, a comment's body) all take
+    this pair, so the flag a caller learns for one works for the others.
+    """
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--description", help="description text")
-    group.add_argument("--description-file", metavar="PATH",
-                       help='read the description from PATH ("-" for stdin); '
+    group.add_argument(f"--{name}", help=f"{name} text")
+    group.add_argument(f"--{name}-file", metavar="PATH",
+                       help=f'read the {name} from PATH ("-" for stdin); '
                             "avoids shell quoting for long or multi-line text")
 
 
-def description(args):
-    if args.description_file is not None:
-        return read_text(args.description_file)
-    return args.description
+def long_text(args, name):
+    if (path := getattr(args, f"{name}_file")) is not None:
+        return read_text(path)
+    return getattr(args, name)
 
 
 def add_version(parser):
@@ -174,6 +181,25 @@ def versioned(args, params):
     if args.if_version is not None:
         params["version"] = args.if_version
     return params
+
+
+def add_creator(parser):
+    parser.add_argument("--creator", help="who or what to record as the creator, "
+                                          "e.g. your name or an agent's; a label PL8 "
+                                          "records but never checks "
+                                          "(default: $PL8_CREATOR)")
+
+
+def default_creator(args):
+    """The creator to record. PL8 stores the label and never verifies it.
+
+    Required, like the space for a bare Issue id: a row with no creator is
+    not a row PL8 accepts, and guessing one from the AWS identity would read
+    as an authenticated claim, which it isn't.
+    """
+    if creator := args.creator or os.environ.get("PL8_CREATOR"):
+        return creator
+    raise UsageError("No creator: pass --creator or set PL8_CREATOR")
 
 
 def add_paging(parser):
@@ -226,10 +252,12 @@ def add_space(subparsers, common):
                                           "if the id is taken.")
     parser.add_argument("space_id", help="1-64 characters from [A-Za-z0-9_-]")
     parser.add_argument("--name", required=True)
-    add_description(parser)
+    add_long_text(parser, "description")
+    add_creator(parser)
     parser.set_defaults(build=lambda args: Request("create_space", {
         "space_id": args.space_id, "name": args.name,
-        "description": description(args)}))
+        "description": long_text(args, "description"),
+        "creator": default_creator(args)}))
 
     parser = verbs.add_parser("get", parents=[common], help="get a Space")
     parser.add_argument("space_id")
@@ -244,11 +272,11 @@ def add_space(subparsers, common):
                                           "pass both.")
     parser.add_argument("space_id")
     parser.add_argument("--name", required=True)
-    add_description(parser)
+    add_long_text(parser, "description")
     add_version(parser)
     parser.set_defaults(build=lambda args: Request("update_space", versioned(args, {
         "space_id": args.space_id, "name": args.name,
-        "description": description(args)})))
+        "description": long_text(args, "description")})))
 
     parser = verbs.add_parser("delete", parents=[common], help="delete a Space",
                               description="Delete a Space. Fails with "
@@ -271,12 +299,14 @@ def add_issue(subparsers, common):
                                           "doesn't exist; create it first.")
     add_space_option(parser)
     parser.add_argument("--title", required=True)
-    add_description(parser)
+    add_long_text(parser, "description")
     parser.add_argument("--status", choices=STATUSES, default="TODO",
                         help="initial status (default: TODO)")
+    add_creator(parser)
     parser.set_defaults(build=lambda args: Request("create_issue", {
         "space_id": default_space(args), "title": args.title,
-        "description": description(args), "status": args.status}))
+        "description": long_text(args, "description"), "status": args.status,
+        "creator": default_creator(args)}))
 
     parser = verbs.add_parser("get", parents=[common], help="get an Issue")
     add_issue_ref(parser)
@@ -300,11 +330,11 @@ def add_issue(subparsers, common):
     add_issue_ref(parser)
     add_space_option(parser)
     parser.add_argument("--title", required=True)
-    add_description(parser)
+    add_long_text(parser, "description")
     add_version(parser)
     parser.set_defaults(build=lambda args: Request("update_issue", versioned(args, {
         **issue_params(args), "title": args.title,
-        "description": description(args)})))
+        "description": long_text(args, "description")})))
 
     parser = verbs.add_parser("transition", parents=[common],
                               help="move an Issue to a status",
@@ -329,6 +359,70 @@ def add_issue(subparsers, common):
 def issue_params(args):
     space_id, issue_id = issue_ref(args, args.issue)
     return {"space_id": space_id, "issue_id": issue_id}
+
+
+# pl8 comment
+
+def add_comment(subparsers, common):
+    comment = subparsers.add_parser("comment", help="add, read, update and delete "
+                                                    "comments on an Issue")
+    verbs = comment.add_subparsers(title="commands", metavar="COMMAND", required=True)
+
+    parser = verbs.add_parser("add", parents=[common], help="comment on an Issue",
+                              description="Comment on an Issue, whatever its status: "
+                                          "DONE stops an Issue moving to another "
+                                          "status, not the discussion. PL8 generates "
+                                          "the comment's id.")
+    add_issue_ref(parser)
+    add_space_option(parser)
+    add_long_text(parser, "body")
+    add_creator(parser)
+    parser.set_defaults(build=lambda args: Request("create_issue_comment", {
+        **issue_params(args), "body": long_text(args, "body"),
+        "creator": default_creator(args)}))
+
+    parser = verbs.add_parser("get", parents=[common], help="get one comment")
+    add_comment_ref(parser)
+    add_space_option(parser)
+    parser.set_defaults(build=lambda args: Request("get_issue_comment",
+                                                   comment_params(args)))
+
+    parser = verbs.add_parser("list", parents=[common],
+                              help="list an Issue's comments, oldest first")
+    add_issue_ref(parser)
+    add_space_option(parser)
+    add_paging(parser)
+    parser.set_defaults(build=lambda args: paged(args, "get_issue_comments",
+                                                 issue_params(args)))
+
+    parser = verbs.add_parser("update", parents=[common], help="update a comment",
+                              description="Replace a comment's body. Its id, creator "
+                                          "and place in the thread are fixed at "
+                                          "creation.")
+    add_comment_ref(parser)
+    add_space_option(parser)
+    add_long_text(parser, "body")
+    add_version(parser)
+    parser.set_defaults(build=lambda args: Request("update_issue_comment", versioned(
+        args, {**comment_params(args), "body": long_text(args, "body")})))
+
+    parser = verbs.add_parser("delete", parents=[common], help="delete a comment",
+                              description="Delete one comment. Deleting the Issue "
+                                          "deletes all of them, in the background.")
+    add_comment_ref(parser)
+    add_space_option(parser)
+    parser.set_defaults(build=lambda args: Request("delete_issue_comment",
+                                                   comment_params(args)))
+
+
+def add_comment_ref(parser):
+    add_issue_ref(parser)
+    parser.add_argument("comment_id", metavar="COMMENT_ID",
+                        help="the comment's id, as PL8 generated it")
+
+
+def comment_params(args):
+    return {**issue_params(args), "comment_id": args.comment_id}
 
 
 # pl8 blocker
@@ -405,6 +499,7 @@ def build_parser():
                                        required=True)
     add_space(subparsers, common)
     add_issue(subparsers, common)
+    add_comment(subparsers, common)
     add_blocker(subparsers, common)
     add_invoke(subparsers, common)
     return parser
