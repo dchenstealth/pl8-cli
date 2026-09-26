@@ -58,6 +58,42 @@ class FakeInvoker:
 
 
 @pytest.fixture
+def transfers(monkeypatch):
+    """Answer the S3 legs instead of performing them.
+
+    Records what the CLI would have sent or fetched, and can fail either leg
+    the way client.py does, which is the only way to exercise a command's
+    recovery path without an S3 to fail against.
+    """
+    class Transfers:
+        def __init__(self):
+            self.uploads = []
+            self.downloads = []
+            # An exception to raise instead of finishing.
+            self.fail = None
+            # What a download writes. Leaving it short of the whole object is
+            # how a transfer cut off part-way is stood in for.
+            self.content = b"the object"
+
+        def upload_file(self, target, path, *, size, name, content_type):
+            self.uploads.append({"target": target, "path": path, "size": size,
+                                 "name": name, "content_type": content_type})
+            if self.fail is not None:
+                raise self.fail
+
+        def download_file(self, url, out):
+            self.downloads.append(url)
+            out.write(self.content)
+            if self.fail is not None:
+                raise self.fail
+
+    transfers = Transfers()
+    monkeypatch.setattr(cli, "upload_file", transfers.upload_file)
+    monkeypatch.setattr(cli, "download_file", transfers.download_file)
+    return transfers
+
+
+@pytest.fixture
 def run(capsys):
     """Run the CLI against a FakeInvoker.
 

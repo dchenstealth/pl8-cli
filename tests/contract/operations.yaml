@@ -154,6 +154,7 @@ operations:
         issue_id: {type: string}
         limit: {type: integer, minimum: 1, maximum: 100}
         cursor: {type: string}
+        ascending: {type: boolean}
 
   - method: update_issue_comment
     schema:
@@ -220,5 +221,102 @@ operations:
       properties:
         space_id: {type: string}
         blocking_issue_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+
+  - method: initiate_issue_attachment_upload
+    returns: [attachment, upload]
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, name, content_type, size, creator]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        name: {type: string}
+        content_type: {type: string}
+        size: {type: integer, minimum: 1, maximum: 104857600}
+        creator: {type: string}
+        comment_id: {type: string}
+
+  - method: resign_issue_attachment_upload
+    returns: [attachment, upload]
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  - method: confirm_issue_attachment_uploaded
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  - method: get_issue_attachment
+    returns: [attachment, download_url]
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  - method: get_issue_attachments
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+        ascending: {type: boolean}
+
+  - method: get_issue_comment_attachments
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, comment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        comment_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+        ascending: {type: boolean}
+
+  - method: delete_issue_attachment
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  - method: get_issue_comments_after
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        last_comment_id: {type: string}
         limit: {type: integer, minimum: 1, maximum: 100}
         cursor: {type: string}
