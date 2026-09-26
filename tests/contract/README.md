@@ -1,42 +1,32 @@
 # pl8-interface contract
 
-`operations.yaml` is normally a verbatim copy of pl8-interface's operation
-allow-list, from
-[pl8-services](https://github.com/dchenstealth/pl8-services).
-
-## PROVISIONAL: the attachment entries are not a copy of anything
-
-**This file is currently hand-authored, not copied, and must be replaced with
-a verbatim copy once pl8-services' attachment branch lands.**
-
-Everything up to and including `get_issue_blocking` is a verbatim copy from:
+`operations.yaml` is a verbatim copy of pl8-interface's operation allow-list,
+from [pl8-services](https://github.com/dchenstealth/pl8-services) at:
 
 ```
-src/pl8-interface/src/pl8_interface/operations.yaml @ 87d45bac7a5818ce73bbce4cc8cdc87d9a02e06e
+src/pl8-interface/src/pl8_interface/operations.yaml @ 81abc55
 ```
 
-The entries added after it, and the `ascending` property on
-`get_issue_comments`, were written here from the agreed operation list while
-pl8-services was implementing the same list in parallel. They are:
+## That commit is not on pl8-services' `main` yet
 
+`81abc55` is the head of pl8-services' `issue-attachments` branch, which adds
+the attachment operations this repo's `pl8 attachment` and `pl8 comment wait`
+commands call. The copy is verbatim, so these tests do check the CLI against
+what pl8-interface actually accepts — but against a branch, not a released
+interface.
+
+Re-pin once that branch is merged. A squash merge gives the file a new commit
+even though its contents do not change, so the hash above will be stale rather
+than wrong:
+
+```bash
+git -C ../pl8-services show <merge commit>:src/pl8-interface/src/pl8_interface/operations.yaml \
+  > tests/contract/operations.yaml
+uv run pytest tests/test_contract.py
 ```
-initiate_issue_attachment_upload   resign_issue_attachment_upload
-confirm_issue_attachment_uploaded  get_issue_attachment
-get_issue_attachments              get_issue_comment_attachments
-delete_issue_attachment            get_issue_comments_after
-```
 
-Until they are replaced, these tests prove only that the CLI agrees with what
-was agreed, not that it agrees with what pl8-interface does. The response
-shapes settled while this was being written: pl8-interface unpacks the pairs
-pl8-base returns into named keys, which is what the `returns:` key on three of
-the new entries lists, and what `cli.initiated` and `cli.attached` read. No
-existing entry has a `returns:` key at all, so whether pl8-services keeps it
-on these, adds it to the rest, or drops it, is still to be seen here.
-
-Re-copy the file as soon as the pl8-services branch is on `main`, pin the
-commit below again, delete this section, and make the CLI pass against the
-real thing.
+If that diff is not empty, the interface changed during review and the CLI has
+to be made to match it again.
 
 ## What the test checks
 

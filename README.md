@@ -180,10 +180,10 @@ uv run pytest
 
 `tests/test_contract.py` checks every subcommand against a pinned copy of
 pl8-interface's `operations.yaml`; see
-[`tests/contract/README.md`](tests/contract/README.md) to refresh it. **The
-attachment operations in that copy are provisional**: they were written from
-the agreed operation list while pl8-services implemented the same list, and
-must be re-copied verbatim once that branch is on `main`.
+[`tests/contract/README.md`](tests/contract/README.md) to refresh it. The
+copy is verbatim, but currently pinned to a pl8-services branch commit
+rather than to `main`, because the attachment operations are not released
+yet; it needs re-pinning once that branch is merged.
 
 Releases publish to PyPI when a `vX.Y.Z` tag matching `pyproject.toml`'s
 version is pushed.
