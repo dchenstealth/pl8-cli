@@ -87,7 +87,7 @@ pl8 space delete SPACE_ID
 pl8 issue create --title TITLE --description TEXT [--status STATUS]
 pl8 issue get ISSUE
 pl8 issue list --status STATUS
-pl8 issue update ISSUE --title TITLE --description TEXT [--if-version N]
+pl8 issue update ISSUE [--title TITLE] [--description TEXT] [--if-version N]
 pl8 issue transition ISSUE --status STATUS [--if-version N]
 pl8 issue delete ISSUE
 

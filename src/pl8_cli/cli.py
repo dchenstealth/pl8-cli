@@ -198,13 +198,13 @@ def build_invoke(args):
 
 # Shared arguments
 
-def add_long_text(parser, name):
-    """--NAME or --NAME-file, exactly one required.
+def add_long_text(parser, name, *, required=True):
+    """--NAME or --NAME-file, at most one, and exactly one if required.
 
     PL8's long text fields (an Issue's description, a comment's body) all take
     this pair, so the flag a caller learns for one works for the others.
     """
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=required)
     group.add_argument(f"--{name}", help=f"{name} text")
     group.add_argument(f"--{name}-file", metavar="PATH",
                        help=f'read the {name} from PATH ("-" for stdin); '
@@ -386,16 +386,15 @@ def add_issue(subparsers, common):
         "space_id": default_space(args), "status": args.status}))
 
     parser = verbs.add_parser("update", parents=[common], help="update an Issue",
-                              description="Replace an Issue's title and description; "
-                                          "pass both.")
+                              description="Replace an Issue's title, description, "
+                                          "or both; whichever is left out is "
+                                          "unchanged.")
     add_issue_ref(parser)
     add_space_option(parser)
-    parser.add_argument("--title", required=True)
-    add_long_text(parser, "description")
+    parser.add_argument("--title")
+    add_long_text(parser, "description", required=False)
     add_version(parser)
-    parser.set_defaults(build=lambda args: Request("update_issue", versioned(args, {
-        **issue_params(args), "title": args.title,
-        "description": long_text(args, "description")})))
+    parser.set_defaults(build=build_issue_update)
 
     parser = verbs.add_parser("transition", parents=[common],
                               help="move an Issue to a status",
@@ -543,6 +542,15 @@ def poll_sleep(interval):
     not security sensitive, so random and not secrets.
     """
     return interval + random.uniform(0, POLL_JITTER * interval)
+
+
+def build_issue_update(args):
+    fields = {"title": args.title, "description": long_text(args, "description")}
+    fields = {name: value for name, value in fields.items() if value is not None}
+    if not fields:
+        raise UsageError("Nothing to update: pass --title, --description or "
+                         "--description-file")
+    return Request("update_issue", versioned(args, {**issue_params(args), **fields}))
 
 
 def build_comment_wait(args):

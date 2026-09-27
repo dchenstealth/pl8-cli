@@ -99,7 +99,11 @@ operations:
     schema:
       type: object
       additionalProperties: false
-      required: [space_id, issue_id, title, description]
+      required: [space_id, issue_id]
+      # Either field may be left out, but not both.
+      anyOf:
+        - required: [title]
+        - required: [description]
       properties:
         space_id: {type: string}
         issue_id: {type: string}

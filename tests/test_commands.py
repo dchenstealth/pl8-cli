@@ -131,8 +131,17 @@ def test_issue_update(call):
                          "description": "D", "version": 2})
 
 
-def test_issue_update_needs_both_fields(usage_error):
-    usage_error("issue", "update", "ENG/abc123", "--title", "T")
+def test_issue_update_sends_only_the_fields_given(call):
+    assert call("issue", "update", "ENG/abc123", "--title", "T") == (
+        "update_issue", {"space_id": "ENG", "issue_id": "abc123", "title": "T"})
+    assert call("issue", "update", "ENG/abc123", "--description", "D") == (
+        "update_issue", {"space_id": "ENG", "issue_id": "abc123",
+                         "description": "D"})
+
+
+def test_issue_update_needs_a_field(usage_error):
+    assert "Nothing to update" in usage_error("issue", "update", "ENG/abc123",
+                                              "--if-version", "2")
 
 
 def test_issue_transition(call):

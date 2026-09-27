@@ -60,7 +60,7 @@ CASES = {
         ["--space", "ENG", "--status", "TODO"],
         ["--space", "ENG", "--status", "TODO", *PAGING]),
     ("issue", "update"): (
-        [REF, "--title", "T", "--description", "D"],
+        [REF, "--title", "T"],
         [REF, "--title", "T", "--description", "D", "--if-version", "2"]),
     ("issue", "transition"): (
         [REF, "--status", "DONE"],
