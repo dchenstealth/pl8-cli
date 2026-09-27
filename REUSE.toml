@@ -9,8 +9,9 @@ path = [
     "README.md",
     "CONTRIBUTING.md",
     "tests/contract/README.md",
-    # Verbatim copy from pl8-services (same author and license), kept
-    # byte-identical so it can be diffed against its source.
+    # Copy from pl8-services (same author and license), kept byte-identical
+    # so it can be diffed against its source. Pinned to a pl8-services
+    # commit; see tests/contract/README.md.
     "tests/contract/operations.yaml",
 ]
 precedence = "aggregate"

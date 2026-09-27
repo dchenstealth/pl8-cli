@@ -51,15 +51,17 @@ response envelope:
 {"ok": false, "error": {"type": "DDBStillBlockedError", "message": "..."}}
 ```
 
-Failures on the CLI side use the same shape. `--pretty` indents it. The exit
-status says what kind of failure it was:
+Failures on the CLI side use the same shape. `--pretty` indents it. Commands
+that take several steps, like uploading an attachment or waiting for comments,
+still print one document, at the end. The exit status says what kind of failure
+it was:
 
 | Exit | Meaning | `error.type` |
 | --- | --- | --- |
 | 0 | Success | |
-| 1 | PL8 rejected the request. Fix it; retrying unchanged won't help. | other `DDB*` errors, `InvalidParams`, `UnknownOperation`, `InvalidRequest` |
+| 1 | PL8 rejected the request. Fix it; retrying unchanged won't help. | other `DDB*` errors, `InvalidParams`, `UnknownOperation`, `InvalidRequest`, `AttachmentPending` |
 | 2 | The command line was wrong, or `--profile` names no profile; nothing was sent. | `UsageError` |
-| 3 | No trustworthy answer: transport failure or server fault. A write may or may not have been applied, so re-read before retrying it. | `InvokeError`, `FunctionError`, `DDBInternalError`, `DDBCorruptedError` |
+| 3 | No trustworthy answer: transport failure or server fault. A write may or may not have been applied, so re-read before retrying it. | `InvokeError`, `FunctionError`, `TransferError`, `DDBInternalError`, `DDBCorruptedError` |
 | 4 | Transient contention, already retried by PL8. Nothing was applied; retry the same request. | `DDBTransactionConflictError`, `DDBIdCollisionError` |
 
 Writes are never retried automatically, since a write that timed out may
@@ -79,21 +81,27 @@ Every command has `--help`, which spells out the rules it enforces.
 pl8 space create SPACE_ID --name NAME --description TEXT
 pl8 space get SPACE_ID
 pl8 space list
-pl8 space update SPACE_ID --name NAME --description TEXT [--if-version N]
+pl8 space update SPACE_ID [--name NAME] [--description TEXT] [--if-version N]
 pl8 space delete SPACE_ID
 
 pl8 issue create --title TITLE --description TEXT [--status STATUS]
 pl8 issue get ISSUE
 pl8 issue list --status STATUS
-pl8 issue update ISSUE --title TITLE --description TEXT [--if-version N]
+pl8 issue update ISSUE [--title TITLE] [--description TEXT] [--if-version N]
 pl8 issue transition ISSUE --status STATUS [--if-version N]
 pl8 issue delete ISSUE
 
 pl8 comment add ISSUE --body TEXT
 pl8 comment get ISSUE COMMENT_ID
-pl8 comment list ISSUE
+pl8 comment list ISSUE [--desc]
+pl8 comment wait ISSUE [--after COMMENT_ID] [--interval SECONDS] [--max-wait SECONDS]
 pl8 comment update ISSUE COMMENT_ID --body TEXT [--if-version N]
 pl8 comment delete ISSUE COMMENT_ID
+
+pl8 attachment add ISSUE --file PATH [--comment COMMENT_ID] [--name NAME] [--content-type TYPE]
+pl8 attachment get ISSUE ATTACHMENT_ID --output PATH [--force]
+pl8 attachment list ISSUE [--comment COMMENT_ID] [--desc]
+pl8 attachment delete ISSUE ATTACHMENT_ID
 
 pl8 blocker add --blocking ISSUE --blocked ISSUE
 pl8 blocker remove --blocking ISSUE --blocked ISSUE
@@ -111,8 +119,24 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   two arguments: `pl8 comment delete ENG/abc123 0199f3a1-...`. They are
   listed oldest first, can be added to an Issue in any status including
   `DONE`, and go away with the Issue they are on.
-- **Creators** are recorded by `space create`, `issue create` and
-  `comment add`. Set `PL8_CREATOR` once, or pass `--creator WHO`. It is a
+- **Waiting** for comments is `pl8 comment wait`, which polls from here
+  rather than blocking a Lambda on the wall clock. It returns the first batch
+  that arrives, or an empty list once `--max-wait` runs out, which is a
+  success too: exit 0, so a loop can just call it again. `--interval` is
+  clamped to 5-60 seconds and jittered, so agents watching one Issue don't
+  poll in lockstep.
+- **Attachments** are files on an Issue, or on one of its comments with
+  `--comment`. `pl8 attachment add` does the whole upload in one command: PL8
+  signs it, the CLI streams the file to S3, then PL8 marks it uploaded. If a
+  step after the first fails, the error carries the `attachment_id`, so you
+  can retry the upload (`pl8 invoke resign_issue_attachment_upload`) or delete
+  the attachment it left behind. `pl8 attachment get` needs `--output PATH`
+  and downloads the object itself: the presigned URL is a live bearer token
+  and never goes to stdout, where the envelope is, and the file is renamed
+  into place so a failed download leaves nothing at PATH. `pl8 invoke
+  get_issue_attachment` is there if you do want the URL.
+- **Creators** are recorded by `space create`, `issue create`,
+  `comment add` and `attachment add`. Set `PL8_CREATOR` once, or pass `--creator WHO`. It is a
   label, not a login: PL8 never checks it against your AWS identity and no
   command is allowed or refused on the basis of it, so give each agent its
   own and a thread says which agent wrote what. Updates leave it alone.
@@ -121,7 +145,7 @@ pl8 invoke OPERATION [--params JSON | --params-file PATH]
   quoting.
 - **Lists** return `{"items": [...], "cursor": ...}`. Pass `--cursor` back
   for the next page, set the page size with `--limit` (1-100), or use
-  `--all` to fetch every page at once.
+  `--all` to fetch every page at once. `--desc` reverses the order.
 - **Updates** replace both fields. `--if-version N` makes the write fail
   with `DDBVersionConflictError` if the item changed since you read version
   `N`.
@@ -138,6 +162,8 @@ pl8 blocker add --blocking OPS/k8s123 --blocked "$id"
 pl8 issue list --status BLOCKED --all
 pl8 comment add "$id" --body "Waiting on the cluster upgrade."
 pl8 comment list "$id"
+pl8 attachment add "$id" --file screenshot.png
+pl8 comment wait "$id" --max-wait 60
 ```
 
 An Issue that gains a blocker moves to BLOCKED. It returns to TODO in the
@@ -154,7 +180,10 @@ uv run pytest
 
 `tests/test_contract.py` checks every subcommand against a pinned copy of
 pl8-interface's `operations.yaml`; see
-[`tests/contract/README.md`](tests/contract/README.md) to refresh it.
+[`tests/contract/README.md`](tests/contract/README.md) to refresh it. The
+copy is verbatim, but currently pinned to a pl8-services branch commit
+rather than to `main`, because the attachment operations are not released
+yet; it needs re-pinning once that branch is merged.
 
 Releases publish to PyPI when a `vX.Y.Z` tag matching `pyproject.toml`'s
 version is pushed.

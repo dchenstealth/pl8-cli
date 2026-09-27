@@ -2,7 +2,12 @@
 # to the JSON Schema its params must satisfy. tests/test_operations_yaml.py
 # keeps these in step with the method signatures. Operations marked
 # paginated: true return (items, cursor) and are shaped into
-# {"items", "cursor"}.
+# {"items", "cursor"}. Operations carrying returns: [a, b] return a tuple of
+# that many values -- an entity plus something that is not one of its
+# attributes, such as a presigned URL -- and are shaped into {"a", "b"} the
+# same way, with any entity among them shaped into its public dict. An
+# operation has at most one of the two markers, and this file stays the single
+# statement of every operation's response shape.
 #
 # Other top-level keys hold shared schema fragments, referenced by anchor.
 
@@ -42,7 +47,11 @@ operations:
     schema:
       type: object
       additionalProperties: false
-      required: [space_id, name, description]
+      required: [space_id]
+      # Either field may be left out, but not both.
+      anyOf:
+        - required: [name]
+        - required: [description]
       properties:
         space_id: {type: string}
         name: {type: string}
@@ -94,7 +103,11 @@ operations:
     schema:
       type: object
       additionalProperties: false
-      required: [space_id, issue_id, title, description]
+      required: [space_id, issue_id]
+      # Either field may be left out, but not both.
+      anyOf:
+        - required: [title]
+        - required: [description]
       properties:
         space_id: {type: string}
         issue_id: {type: string}
@@ -154,6 +167,22 @@ operations:
         issue_id: {type: string}
         limit: {type: integer, minimum: 1, maximum: 100}
         cursor: {type: string}
+        ascending: {type: boolean}
+
+  # Reads a thread forward from a comment the caller has already seen, which
+  # is why it takes no ascending: "after" has only one sensible order.
+  - method: get_issue_comments_after
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        last_comment_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
 
   - method: update_issue_comment
     schema:
@@ -176,6 +205,101 @@ operations:
         space_id: {type: string}
         issue_id: {type: string}
         comment_id: {type: string}
+
+  # An attachment is uploaded by the caller, not through PL8: initiate returns
+  # the pending row plus the presigned target to POST the bytes to ({"url",
+  # "fields"}), and confirm is what checks the object landed and marks the row
+  # uploaded. A row whose upload never completed expires (see
+  # infra/dynamodb.tf), which is how its object gets reaped.
+  - method: initiate_issue_attachment_upload
+    returns: [attachment, upload]
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, name, content_type, size, creator]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        name: {type: string}
+        content_type: {type: string}
+        # Bounded here as well as in the presigned POST's own conditions: a
+        # caller that lies about the size has its upload rejected by S3.
+        size: {type: integer, minimum: 1, maximum: 104857600}
+        creator: {type: string}
+        comment_id: {type: string}
+
+  # A presigned target expires; this issues a fresh one for a row that is
+  # still PENDING, without starting the upload over.
+  - method: resign_issue_attachment_upload
+    returns: [attachment, upload]
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  - method: confirm_issue_attachment_uploaded
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  # Returns the attachment plus a presigned URL to download it with, which is
+  # null until the attachment is UPLOADED: a PENDING row has no object yet.
+  - method: get_issue_attachment
+    returns: [attachment, download_url]
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
+
+  - method: get_issue_attachments
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+        ascending: {type: boolean}
+
+  - method: get_issue_comment_attachments
+    paginated: true
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, comment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        comment_id: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 100}
+        cursor: {type: string}
+        ascending: {type: boolean}
+
+  - method: delete_issue_attachment
+    schema:
+      type: object
+      additionalProperties: false
+      required: [space_id, issue_id, attachment_id]
+      properties:
+        space_id: {type: string}
+        issue_id: {type: string}
+        attachment_id: {type: string}
 
   - method: add_issue_blocker
     schema:

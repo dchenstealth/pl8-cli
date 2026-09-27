@@ -29,6 +29,9 @@ def usage_error(result):
     ("DDBCorruptedError", cli.EXIT_FAULT),
     ("InvokeError", cli.EXIT_FAULT),
     ("FunctionError", cli.EXIT_FAULT),
+    # A transfer that failed says nothing trustworthy about the bytes.
+    ("TransferError", cli.EXIT_FAULT),
+    ("AttachmentPending", cli.EXIT_REJECTED),
     ("DDBTransactionConflictError", cli.EXIT_TRANSIENT),
     ("DDBIdCollisionError", cli.EXIT_TRANSIENT),
 ])

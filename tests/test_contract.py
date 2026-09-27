@@ -7,12 +7,15 @@
 Each subcommand is exercised twice: with only its required arguments, and
 with every optional argument too. Both must produce params that pass the
 operation's schema, compiled with the validator pl8-interface itself uses,
-and the full form must reach every property the schema has. Together with
-the coverage checks, a new operation, a new schema property, or a new
-subcommand fails here until the CLI and this table account for it.
+and the full form must reach every property the schema has. A command that
+sends more than one operation is driven through all of its legs, with canned
+responses, so each leg is checked the same way. Together with the coverage
+checks, a new operation, a new schema property, or a new subcommand fails
+here until the CLI and this table account for it.
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import fastjsonschema
@@ -30,7 +33,12 @@ OPERATIONS = {
 
 REF = "ENG/abc123"
 COMMENT_ID = "0199f3a1-0000-7000-8000-000000000000"
+ATTACHMENT_ID = "0199f3a2-0000-7000-8000-000000000000"
 PAGING = ["--limit", "10", "--cursor", "c1"]
+# A real file to upload, since its size is read from the filesystem, and a
+# path to download to that does not exist: the transfer never runs here.
+UPLOAD = str(Path(__file__))
+OUTPUT = str(Path(__file__).parent / "contract-download")
 
 # subcommand: (required-only argv, argv with every optional too)
 CASES = {
@@ -40,7 +48,7 @@ CASES = {
     ("space", "get"): (["ENG"], ["ENG"]),
     ("space", "list"): ([], PAGING),
     ("space", "update"): (
-        ["ENG", "--name", "N", "--description", "D"],
+        ["ENG", "--name", "N"],
         ["ENG", "--name", "N", "--description", "D", "--if-version", "2"]),
     ("space", "delete"): (["ENG"], ["ENG"]),
     ("issue", "create"): (
@@ -52,7 +60,7 @@ CASES = {
         ["--space", "ENG", "--status", "TODO"],
         ["--space", "ENG", "--status", "TODO", *PAGING]),
     ("issue", "update"): (
-        [REF, "--title", "T", "--description", "D"],
+        [REF, "--title", "T"],
         [REF, "--title", "T", "--description", "D", "--if-version", "2"]),
     ("issue", "transition"): (
         [REF, "--status", "DONE"],
@@ -62,24 +70,60 @@ CASES = {
         [REF, "--body", "B", "--creator", "alice"],
         [REF, "--body", "B", "--creator", "alice"]),
     ("comment", "get"): ([REF, COMMENT_ID], [REF, COMMENT_ID]),
-    ("comment", "list"): ([REF], [REF, *PAGING]),
+    ("comment", "list"): ([REF], [REF, "--desc", *PAGING]),
+    ("comment", "wait"): (
+        [REF],
+        [REF, "--after", COMMENT_ID, "--interval", "10", "--max-wait", "30", *PAGING]),
     ("comment", "update"): (
         [REF, COMMENT_ID, "--body", "B"],
         [REF, COMMENT_ID, "--body", "B", "--if-version", "2"]),
     ("comment", "delete"): ([REF, COMMENT_ID], [REF, COMMENT_ID]),
+    ("attachment", "add"): (
+        [REF, "--file", UPLOAD, "--creator", "alice"],
+        [REF, "--file", UPLOAD, "--creator", "alice", "--comment", COMMENT_ID,
+         "--name", "notes.md", "--content-type", "text/markdown"]),
+    ("attachment", "get"): (
+        [REF, ATTACHMENT_ID, "--output", OUTPUT],
+        [REF, ATTACHMENT_ID, "--output", OUTPUT, "--force"]),
+    ("attachment", "list"): ([REF], [REF, "--desc", *PAGING]),
+    # One subcommand, two operations: one case per side.
+    ("attachment", "list", "--comment"): (
+        [REF, "--comment", COMMENT_ID],
+        [REF, "--comment", COMMENT_ID, "--desc", *PAGING]),
+    ("attachment", "delete"): ([REF, ATTACHMENT_ID], [REF, ATTACHMENT_ID]),
     ("blocker", "add"): (
         ["--blocking", REF, "--blocked", "OPS/def456"],
         ["--blocking", REF, "--blocked", "OPS/def456"]),
     ("blocker", "remove"): (
         ["--blocking", REF, "--blocked", "OPS/def456"],
         ["--blocking", REF, "--blocked", "OPS/def456"]),
-    # One subcommand, two operations: one case per side.
     ("blocker", "list", "--blocked"): (["--blocked", REF], ["--blocked", REF, *PAGING]),
     ("blocker", "list", "--blocking"): (["--blocking", REF], ["--blocking", REF, *PAGING]),
 }
 
+# Operations with no subcommand of their own, reached through pl8 invoke,
+# which passes params through unchanged: re-signing an upload is a recovery
+# step for `attachment add`, not a command anyone drives on its own. Covered
+# the same way, so such an operation still has to be named here and still has
+# to have every one of its properties sent.
+RAW_CASES = {
+    "resign_issue_attachment_upload": (
+        {"space_id": "ENG", "issue_id": "abc123", "attachment_id": ATTACHMENT_ID},
+        {"space_id": "ENG", "issue_id": "abc123", "attachment_id": ATTACHMENT_ID}),
+}
+
 # Takes any operation by design, so it has no schema of its own to meet.
 RAW_COMMANDS = {("invoke",)}
+
+# What the multi-step commands read out of their earlier legs' responses.
+RESPONSES = {
+    "initiate_issue_attachment_upload": {
+        "attachment": {"attachment_id": ATTACHMENT_ID, "status": "PENDING"},
+        "upload": {"url": "https://s3.example/pl8", "fields": {"key": "k"}}},
+    "get_issue_attachment": {
+        "attachment": {"attachment_id": ATTACHMENT_ID, "status": "UPLOADED"},
+        "download_url": "https://s3.example/pl8/k"},
+}
 
 
 def leaf_commands(parser, path=()):
@@ -91,16 +135,52 @@ def leaf_commands(parser, path=()):
             for leaf in leaf_commands(child, (*path, name))}
 
 
-def build(case, argv):
+def canned(request):
+    """A response that lets a command get to its next leg.
+
+    Pages come back with an item in them, so `comment wait` returns on its
+    first poll rather than sleeping through its wait.
+    """
+    if OPERATIONS[request.operation].get("paginated"):
+        return {"ok": True, "data": {"items": [{}], "cursor": None}}
+    return {"ok": True, "data": RESPONSES.get(request.operation)}
+
+
+def legs(case, argv):
+    """Every operation the command sends, driven with canned responses.
+
+    A command that sends one operation has one leg. An attachment upload has
+    its initiate and its confirm, with the S3 transfer between them answered
+    here instead of performed: nothing in this file reaches AWS or S3.
+    """
     command = [part for part in case if not part.startswith("--")]
-    _, request = cli.parse(["--env", "dev", *command, *argv])
-    return request
+    _, plan = cli.parse(["--env", "dev", *command, *argv])
+    sent = []
+
+    def perform(step):
+        if not isinstance(step, cli.Request):
+            return {"ok": True, "data": None}
+        sent.append(step)
+        return canned(step)
+
+    envelope = cli.drive(plan, perform)
+    assert envelope["ok"], envelope
+    return sent
+
+
+def raw_legs(operation, params):
+    return legs(("invoke",), [operation, "--params", json.dumps(params)])
 
 
 def all_requests():
-    for case, (required, full) in CASES.items():
-        yield case, "required", build(case, required)
-        yield case, "full", build(case, full)
+    for case, forms in CASES.items():
+        for form, argv in zip(("required", "full"), forms):
+            for request in legs(case, argv):
+                yield case, form, request
+    for operation, forms in RAW_CASES.items():
+        for form, params in zip(("required", "full"), forms):
+            for request in raw_legs(operation, params):
+                yield ("invoke", operation), form, request
 
 
 def test_every_subcommand_has_a_case():
@@ -113,7 +193,7 @@ def test_every_operation_is_reachable():
 
 
 @pytest.mark.parametrize("request_", [
-    pytest.param(request, id=f"{' '.join(case)} ({form})")
+    pytest.param(request, id=f"{' '.join(case)} ({form}: {request.operation})")
     for case, form, request in all_requests()
 ])
 def test_params_pass_the_schema(request_):
@@ -121,20 +201,24 @@ def test_params_pass_the_schema(request_):
     validate(request_.params)
 
 
-@pytest.mark.parametrize("case", list(CASES), ids=" ".join)
-def test_full_form_reaches_every_property(case):
-    request = build(case, CASES[case][1])
-    assert set(request.params) == set(OPERATIONS[request.operation]["schema"]["properties"])
+@pytest.mark.parametrize("request_", [
+    pytest.param(request, id=f"{' '.join(case)} ({request.operation})")
+    for case, form, request in all_requests() if form == "full"
+])
+def test_full_form_reaches_every_property(request_):
+    assert set(request_.params) == set(OPERATIONS[request_.operation]["schema"]["properties"])
 
 
 @pytest.mark.parametrize("case", list(CASES), ids=" ".join)
 def test_all_pages_only_for_paginated_operations(case):
     command = [part for part in case if not part.startswith("--")]
     required = CASES[case][0]
-    paginated = OPERATIONS[build(case, required).operation].get("paginated", False)
 
-    if paginated:
-        assert build(case, [*required, "--all"]).all_pages
+    def paginated(requests):
+        return [r for r in requests if OPERATIONS[r.operation].get("paginated", False)]
+
+    if paginated(legs(case, required)):
+        assert all(r.all_pages for r in paginated(legs(case, [*required, "--all"])))
     else:
         with pytest.raises(cli.UsageError):
             cli.parse(["--env", "dev", *command, *required, "--all"])
@@ -143,3 +227,8 @@ def test_all_pages_only_for_paginated_operations(case):
 def test_statuses_match_schema():
     enum = OPERATIONS["create_issue"]["schema"]["properties"]["status"]["enum"]
     assert list(cli.STATUSES) == enum
+
+
+def test_the_size_limit_matches_the_schema():
+    size = OPERATIONS["initiate_issue_attachment_upload"]["schema"]["properties"]["size"]
+    assert cli.MAX_ATTACHMENT_BYTES == size["maximum"]
