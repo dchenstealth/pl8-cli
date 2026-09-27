@@ -4,14 +4,15 @@
 from [pl8-services](https://github.com/dchenstealth/pl8-services) at:
 
 ```
-src/pl8-interface/src/pl8_interface/operations.yaml @ 37d4b1e
+src/pl8-interface/src/pl8_interface/operations.yaml @ 5115f6d
 ```
 
 ## That commit is not on pl8-services' `main` yet
 
-`37d4b1e` is the head of pl8-services' `issue-attachments` branch, which adds
-the attachment operations this repo's `pl8 attachment` and `pl8 comment wait`
-commands call. The copy is verbatim, so these tests do check the CLI against
+`5115f6d` is the head of pl8-services' `feature/issue-attachments` branch
+([pl8-services#6](https://github.com/dchenstealth/pl8-services/pull/6)), which
+adds the attachment operations this repo's `pl8 attachment` and
+`pl8 comment wait` commands call. The copy is verbatim, so these tests do check the CLI against
 what pl8-interface actually accepts — but against a branch, not a released
 interface.
 
