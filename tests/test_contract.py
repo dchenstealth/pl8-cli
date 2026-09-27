@@ -48,7 +48,7 @@ CASES = {
     ("space", "get"): (["ENG"], ["ENG"]),
     ("space", "list"): ([], PAGING),
     ("space", "update"): (
-        ["ENG", "--name", "N", "--description", "D"],
+        ["ENG", "--name", "N"],
         ["ENG", "--name", "N", "--description", "D", "--if-version", "2"]),
     ("space", "delete"): (["ENG"], ["ENG"]),
     ("issue", "create"): (

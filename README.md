@@ -81,7 +81,7 @@ Every command has `--help`, which spells out the rules it enforces.
 pl8 space create SPACE_ID --name NAME --description TEXT
 pl8 space get SPACE_ID
 pl8 space list
-pl8 space update SPACE_ID --name NAME --description TEXT [--if-version N]
+pl8 space update SPACE_ID [--name NAME] [--description TEXT] [--if-version N]
 pl8 space delete SPACE_ID
 
 pl8 issue create --title TITLE --description TEXT [--status STATUS]

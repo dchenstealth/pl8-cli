@@ -225,6 +225,20 @@ def add_version(parser):
                              "DDBVersionConflictError otherwise")
 
 
+def update_fields(args, field):
+    """The fields an update was given: FIELD, the description, or both.
+
+    An update leaves out whichever it is not given, and must be given one.
+    """
+    fields = {field: getattr(args, field),
+              "description": long_text(args, "description")}
+    fields = {name: value for name, value in fields.items() if value is not None}
+    if not fields:
+        raise UsageError(f"Nothing to update: pass --{field}, --description or "
+                         "--description-file")
+    return fields
+
+
 def versioned(args, params):
     if args.if_version is not None:
         params["version"] = args.if_version
@@ -329,15 +343,15 @@ def add_space(subparsers, common):
     parser.set_defaults(build=lambda args: paged(args, "get_spaces", {}))
 
     parser = verbs.add_parser("update", parents=[common], help="update a Space",
-                              description="Replace a Space's name and description; "
-                                          "pass both.")
+                              description="Replace a Space's name, description, "
+                                          "or both; whichever is left out is "
+                                          "unchanged.")
     parser.add_argument("space_id")
-    parser.add_argument("--name", required=True)
-    add_long_text(parser, "description")
+    parser.add_argument("--name")
+    add_long_text(parser, "description", required=False)
     add_version(parser)
     parser.set_defaults(build=lambda args: Request("update_space", versioned(args, {
-        "space_id": args.space_id, "name": args.name,
-        "description": long_text(args, "description")})))
+        "space_id": args.space_id, **update_fields(args, "name")})))
 
     parser = verbs.add_parser("delete", parents=[common], help="delete a Space",
                               description="Delete a Space. Fails with "
@@ -545,12 +559,8 @@ def poll_sleep(interval):
 
 
 def build_issue_update(args):
-    fields = {"title": args.title, "description": long_text(args, "description")}
-    fields = {name: value for name, value in fields.items() if value is not None}
-    if not fields:
-        raise UsageError("Nothing to update: pass --title, --description or "
-                         "--description-file")
-    return Request("update_issue", versioned(args, {**issue_params(args), **fields}))
+    return Request("update_issue", versioned(args, {
+        **issue_params(args), **update_fields(args, "title")}))
 
 
 def build_comment_wait(args):

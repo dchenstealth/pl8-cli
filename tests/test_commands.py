@@ -68,6 +68,17 @@ def test_space_update(call):
                          "version": 3})
 
 
+def test_space_update_sends_only_the_fields_given(call):
+    assert call("space", "update", "ENG", "--name", "N") == (
+        "update_space", {"space_id": "ENG", "name": "N"})
+    assert call("space", "update", "ENG", "--description", "D") == (
+        "update_space", {"space_id": "ENG", "description": "D"})
+
+
+def test_space_update_needs_a_field(usage_error):
+    assert "Nothing to update" in usage_error("space", "update", "ENG")
+
+
 def test_space_delete(call):
     assert call("space", "delete", "ENG") == ("delete_space", {"space_id": "ENG"})
 
